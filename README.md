@@ -6,5 +6,5 @@ We want to delegate ECC cryptographic operation to EFR32MG21B. For that we are g
 
 ```
 cd mbedtls
-FLAGS="-I/path/to/NCP-Zigbee-Secure-Element/dev -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make
+CFLAGS="-I/path/to/NCP-Zigbee-Secure-Element/dev -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make no_test
 ```
