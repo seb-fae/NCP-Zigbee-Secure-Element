@@ -64,87 +64,59 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
 
 #endif /* MBEDTLS_ECDH_C */
 
+#include "message_queue.h"
 #include "efr32mg21b_mgmt.h"
-#include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#define MAX 80
-#define PORT 8080
-#define SA struct sockaddr
 
-int sockfd, connfd, len;
-struct sockaddr_in servaddr, cli;
+MessageQBuffer_t message_in;
+MessageQBuffer_t message_out;
 
-void open_socket_client()
+int32_t read_cert_size(sl_se_cert_size_type_t * bsize)
 {
-    // socket create and varification
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1) {
-        printf("socket creation failed...\n");
-        exit(0);
-    }
-    else
-        printf("Socket successfully created..\n");
-    bzero(&servaddr, sizeof(servaddr));
+  /* Send message */  
+  message_out.mtype = 1;
+  message_out.mtext[0] = CMD_RD_CERT_SIZE;
+  send_message(&message_out, 1);
+  /* Read message */
+  ssize_t rsize = read_message(&message_in);
 
-    // assign IP, PORT
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    servaddr.sin_port = htons(PORT);
+  if (rsize != sizeof(sl_se_cert_size_type_t))
+    return -1;
 
-    // connect the client socket to server socket
-    if (connect(sockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) {
-        printf("connection with the server failed...\n");
-        exit(0);
-    }
-    else
-        printf("connected to the server..\n");
+  memcpy(&cert_size_buf, message_in.mtext, rsize);
 
-}
+  print_buffer(&cert_size_buf, rsize);
 
-uint8_t socket_buffer[1024];
-void close_socket()
-{
-	// After chatting close the socket
-	close(sockfd);
-}
-
-void print_socket_rsp(uint32_t size)
-{
-  for (uint32_t i = 0; i< size; i++)
-    {
-      if ((i%8) == 0)
-        printf("0x%x\n", socket_buffer[i]);
-      else
-        printf("0x%x ", socket_buffer[i]);
-    }
-  printf("\n");
-}
-
-uint32_t read_cert_size(sl_se_cert_size_type_t * bsize)
-{
-  /* Send command on socket */
-  socket_buffer[0] = 1;
-  write(sockfd, socket_buffer, 1);
-  /* Read from socket */
-  uint32_t rsize = read(sockfd, bsize, sizeof(sl_se_cert_size_type_t));
-  if (rsize > 0)
-    /* Print receive buffer */
-    print_socket_rsp(rsize);
+  return 0;
 }
 
 uint32_t read_cert_data(uint8_t *buf, uint8_t cert_type)
 {
+  /* Send message */  
+  message_out.mtype = 1;
+
+  switch (cert_type)
+  {
+    case SL_SE_CERT_DEVICE_HOST:
+      message_out.mtext[0] = CMD_RD_DEVICE_CERT;
+      break; 
+    default:
+      message_out.mtext[0] = CMD_RD_BATCH_CERT;
+      break;
+  }
+
+  send_message(&message_out, 1);
+  /* Read message */
+  ssize_t rsize = read_message(&message_in);
+
+  memcpy(buf, message_in.mtext, rsize);
+  print_buffer(buf, rsize);
+  return 0;
 }
 
 
 uint32_t efr32mg21b_init()
 {
-  open_socket_client();
+  init_message_queue();
 }
 
 /***************************************************************************//**
@@ -206,7 +178,7 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
 	/* We consider that SE is initialized here */
         state = SE_MANAGER_EXIT;
         printf("\n  . Secure Vault device:\n");
-        printf("  + Read size of on-chip certificates... ");
+        printf("  + Read size of on-chip certificates... \n");
         if (read_cert_size(&cert_size_buf) == 0) {
           state = RD_DEVICE_CERT;
         }
@@ -214,7 +186,7 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
 
       case RD_DEVICE_CERT:
         state = SE_MANAGER_EXIT;
-        printf("  + Read on-chip device certificate... ");
+        printf("  + Read on-chip device certificate... \n");
         if (read_cert_data(cert_buf, SL_SE_CERT_DEVICE_HOST) == 0) {
           state = PARSE_DEVICE_CERT;
         }
@@ -222,37 +194,44 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
   
       case PARSE_DEVICE_CERT:
         state = SE_MANAGER_EXIT;
-        printf("  + Parse the device certificate (DER format)... ");
+        printf("  + Parse the device certificate (DER format)... \n");
         if (mbedtls_x509_crt_parse_der(cert, (const uint8_t *)cert_buf, get_cert_size(SL_SE_CERT_DEVICE_HOST)) == 0)
 	  {
             if (get_pub_device_key(cert, pkey) == 0) {
               printf("OK\n");
-            state = RD_BATCH_CERT;
+              state = RD_BATCH_CERT;
 	  }	  
+	else 
+          printf("error\n");
 
         break;
   
       case RD_BATCH_CERT:
         state = SE_MANAGER_EXIT;
-        printf("  + Read on-chip batch certificate... ");
-        if (read_cert_data(cert_buf, SL_SE_CERT_BATCH) == 0) {
+        printf("  + Read on-chip batch certificate...\n");
+        if (read_cert_data(cert_buf, SL_SE_CERT_BATCH) == 0) 
           state = PARSE_BATCH_CERT;
-        }
         break;
   
       case PARSE_BATCH_CERT:
         state = SE_MANAGER_EXIT;
-        printf("  + Parse the batch certificate (DER format)... ");
+        printf("  + Parse the batch certificate (DER format)...\n");
         if (mbedtls_x509_crt_parse_der(cert, (const uint8_t *)cert_buf, get_cert_size(SL_SE_CERT_BATCH)))
+	{
           state = PARSE_FACTORY_CERT;
+          printf("ok\n");
+	}
+	else 
+          printf("error\n");
         break;
   
       case PARSE_FACTORY_CERT:
         state = SE_MANAGER_EXIT;
         printf("\n  . Remote device:\n");
-        printf("  + Parse the factory certificate (PEM format)... ");
+        printf("  + Parse the factory certificate (PEM format)... \n");
         if (mbedtls_x509_crt_parse_der(cert, factory, sizeof(factory)))
           state = PARSE_ROOT_CERT;
+        printf("OK\n");
         break;
   
       case PARSE_ROOT_CERT:
