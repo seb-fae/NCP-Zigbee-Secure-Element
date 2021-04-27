@@ -1,0 +1,10 @@
+export PROJECT_LOC=/home/osboxes/Work/NCP-Zigbee-Secure-Element/
+
+/* Compile mbedtls */
+FLAGS="-I/home/osboxes/Work/mbedtls/dev -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make
+
+/* Compile Application */
+gcc dev/app/efr32mg21b_mgmt.c dev/app/connect_hw.c dev/app/mq_client.c -o connect -I$PROJECT_LOC/mbedtls/include/ -I$PROJECT_LOC/dev/app -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\> -L $PROJECT_LOC/mbedtls/library/ -lmbedtls -lmbedx509 -lmbedcrypto
+
+/* Run application */
+/connect 127.0.0.1 8080 0 dev/root_ca.pem
