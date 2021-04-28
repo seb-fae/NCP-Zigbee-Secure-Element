@@ -15,9 +15,9 @@ You should otbain linking error for
 * mbedtls_ecdh_compute_shared 
 * mbedtls_ecdsa_can_do
 
-This is normal.
+This is normal. This function are implemented in 
 
-## Compile application and link with mbetls libraries
+## Compile application and link with mbetls libraries in efr32mg21b_mgmt.c
 
 ```
 cd $PROJECT_LOC
