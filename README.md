@@ -11,9 +11,9 @@ CFLAGS="-I$PROJECT_LOC/dev -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make no_t
 ```
 You should otbain linking error for
 * mbedtls_ecdh_gen_public 
-* *mbedtls_ecdsa_sign 
-* *mbedtls_ecdh_compute_shared 
-* *mbedtls_ecdsa_can_do.
+* mbedtls_ecdsa_sign 
+* mbedtls_ecdh_compute_shared 
+* mbedtls_ecdsa_can_do.
 This is normal.
 
 ## Compile application and link with mbetls libraries
