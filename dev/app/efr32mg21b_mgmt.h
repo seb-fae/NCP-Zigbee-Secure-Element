@@ -18,6 +18,8 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/ecdh.h"
 
+#include <string.h>
+
 typedef enum {
   SE_MANAGER_IDLE,
   RD_CERT_SIZE,
@@ -45,8 +47,9 @@ typedef enum {
   CMD_GET_PUBLIC_DEVICE_KEY,
   CMD_VERIFY_SIGNATURE_LOCAL,
   CMD_VERIFY_SIGNATURE_REMOTE,
-} cmd_t;
-
+  CMD_GENERATE_ECDH_KEYPAIR_GENERATE,
+  CMD_GENERATE_ECDH_COMPUTE_SHARED
+ } cmd_t;
 /// Batch ID certificate
 #define SL_SE_CERT_BATCH                          0x01
 /// SE ID certificate

@@ -18,7 +18,7 @@ void init_message_queue(void)
   FILE *fptr;
 
   // Create a temporary file called /tmp/ipc
-  fptr = fopen(IPC_TEMP_ZIGBEE_IN_FILE, "r+");
+  fptr = fopen(IPC_TEMP_ZIGBEE_IN_FILE, "w+");
   if (fptr == NULL) {
     printf("IPC: failed to read %s\n", IPC_TEMP_ZIGBEE_IN_FILE);
     return;
@@ -69,6 +69,10 @@ ssize_t read_message(MessageQBuffer_t * messageBuffer)
                            1,
                            MSG_NOERROR);
     }
+
+  if (bytesReceived < 0)
+    printf("Error when reading message queue %d\n", bytesReceived);
+
 
   return bytesReceived;
 }

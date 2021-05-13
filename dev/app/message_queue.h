@@ -8,8 +8,8 @@
 #include <sys/msg.h>
 #include <sys/stat.h>
 
-#define IPC_TEMP_ZIGBEE_IN_FILE  "/tmp/ipc_zigbee_in"
-#define IPC_TEMP_ZIGBEE_OUT_FILE  "/tmp/ipc_zigbee_out"
+#define IPC_TEMP_ZIGBEE_IN_FILE  "/tmp/ipc_zin"
+#define IPC_TEMP_ZIGBEE_OUT_FILE  "/tmp/ipc_zout"
 #define MPSI_KEY_ZIGBEE_IN       1
 #define MPSI_KEY_ZIGBEE_OUT      2
 #define IPC_QUEUE_PAYLOAD_SIZE   1024

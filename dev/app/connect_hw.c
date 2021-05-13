@@ -23,7 +23,7 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/ecdh.h"
 
-uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * root_cert, mbedtls_x509_crt * cert, mbedtls_pk_context * pkey);
+uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey);
 
 static void my_debug(
     void *ctx, int level, const char *file, int line, const char *str)
@@ -48,6 +48,7 @@ int efr32mg21_connect(
     mbedtls_x509_crt cacert;
     mbedtls_pk_context pkey;
     mbedtls_x509_crt cert;
+    mbedtls_x509_crl crl;
     /*
     * 0. Initialize the RNG and the session data
     */
@@ -59,7 +60,7 @@ int efr32mg21_connect(
     mbedtls_pk_init(&pkey);
     mbedtls_entropy_init(&entropy);
     mbedtls_ctr_drbg_init(&ctr_drbg);
-    mbedtls_debug_set_threshold(6);
+    mbedtls_debug_set_threshold(4);
     mbedtls_ssl_conf_dbg(&conf, my_debug, stdout);
 
     printf("\n  . Seeding the random number generator...");
@@ -104,7 +105,7 @@ int efr32mg21_connect(
 
     printf("Build certificate chain ...\n");
     /* Build EFR32MG21B certificate chain */
-    efr32mg21b_build_certificate_chain(&cacert, &cert, &pkey);
+    efr32mg21b_build_certificate_chain(&cert, &pkey);
 	
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
 
@@ -126,6 +127,7 @@ int efr32mg21_connect(
         goto exit;
     }
 
+    printf("set hostname %s\n", cn);
     if ((ret = mbedtls_ssl_set_hostname(&ssl, cn)) != 0)
     {
         printf(" failed\n  ! mbedtls_ssl_set_hostname returned %d\n\n", ret);

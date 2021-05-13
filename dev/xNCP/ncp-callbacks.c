@@ -25,6 +25,8 @@ EmberEventControl eventData;
 #include "sl_se_manager_util.h"
 #include "sl_se_manager_internal_keys.h"
 
+#include <ecdh.h>
+
 /// Certificate buffer size
 #define CERT_SIZE       (512)
 /// Command context
@@ -60,7 +62,9 @@ typedef enum {
   CMD_GET_PUBLIC_DEVICE_KEY,
   CMD_VERIFY_SIGNATURE_LOCAL,
   CMD_VERIFY_SIGNATURE_REMOTE,
-} cmd_t;
+  CMD_GENERATE_ECDH_KEYPAIR_GENERATE,
+  CMD_GENERATE_ECDH_COMPUTE_SHARED
+ } cmd_t;
 
 
 enum se_state
@@ -70,7 +74,6 @@ enum se_state
 };
 
 enum se_state state = RESET_STATE;
-
 
 /***************************************************************************//**
  * Get certificate size.
@@ -134,6 +137,256 @@ void emberAfMainInitCallback(void) {
     state = INITIALISED;
 }
 
+
+// -----------------------------------------------------------------------------
+//                              Macros and Typedefs
+// -----------------------------------------------------------------------------
+/// Overhead of wrapped key buffer
+#define WRAPPED_KEY_OVERHEAD    (12 + 16)
+
+/// Private key size of ECC Weierstrass Prime keys
+#define ECC_P192_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P192 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
+#define ECC_P256_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P256 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
+#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
+#define ECC_P384_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P384 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
+#define ECC_P521_PRIVKEY_SIZE   ((SL_SE_KEY_TYPE_ECC_P521 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK) + 2)
+
+/// Private key size of ECC Montgomery keys
+#define ECC_X25519_PRIVKEY_SIZE (SL_SE_KEY_TYPE_ECC_X25519 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
+#define ECC_X448_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_X448 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
+
+/// Use the biggest ECC curve as private key size
+#define ECC_PRIVKEY_SIZE        (ECC_P521_PRIVKEY_SIZE)
+
+/// Domain size of asymmetric custom key
+#define DOMAIN_SIZE             (32)
+#else
+/// Use the biggest ECC curve as private key size
+#define ECC_PRIVKEY_SIZE        (ECC_P256_PRIVKEY_SIZE)
+#endif
+
+/// Public key size = private key size x 2
+#define ECC_PUBKEY_SIZE         (ECC_PRIVKEY_SIZE * 2)
+
+/// Shared secret size = private key size x 2
+#define SHARED_SECRET_SIZE      (ECC_PRIVKEY_SIZE * 2)
+
+/// Internal SE key slots used for asymmetric keys
+#define CLIENT_KEY_SLOT         (SL_SE_KEY_SLOT_VOLATILE_0)
+#define SERVER_KEY_SLOT         (SL_SE_KEY_SLOT_VOLATILE_1)
+
+static sl_se_command_context_t cmd_ctx;
+
+#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
+/// Constants for custom secp256k1 curve
+static const uint8_t p[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xfc, 0x2f };
+static const uint8_t N[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+                             0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
+                             0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41 };
+static const uint8_t Gx[] = { 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac,
+                              0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b, 0x07,
+                              0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9,
+                              0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98 };
+static const uint8_t Gy[] = { 0x48, 0x3a, 0xda, 0x77, 0x26, 0xa3, 0xc4, 0x65,
+                              0x5d, 0xa4, 0xfb, 0xfc, 0x0e, 0x11, 0x08, 0xa8,
+                              0xfd, 0x17, 0xb4, 0x48, 0xa6, 0x85, 0x54, 0x19,
+                              0x9c, 0x47, 0xd0, 0x8f, 0xfb, 0x10, 0xd4, 0xb8 };
+static const uint8_t a[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+static const uint8_t b[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07 };
+
+/// Structure for custom ECC curve
+static const sl_se_custom_weierstrass_prime_domain_t domain = {
+  .size = DOMAIN_SIZE,
+  .p = p,
+  .N = N,
+  .Gx = Gx,
+  .Gy = Gy,
+  .a = a,
+  .b = b,
+  .a_is_zero = true,
+  .a_is_minus_three = false
+};
+
+/// Buffers for asymmetric plain or wrapped key
+static uint8_t client_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE + WRAPPED_KEY_OVERHEAD];
+
+
+/// Buffers for asymmetric custom plain or wrapped key
+static uint8_t client_custom_key_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2 + DOMAIN_SIZE + WRAPPED_KEY_OVERHEAD];
+static uint8_t server_custom_key_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2 + DOMAIN_SIZE + WRAPPED_KEY_OVERHEAD];
+
+/// Buffers for asymmetric custom public key
+static uint8_t client_custom_pubkey_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2];
+static uint8_t server_custom_pubkey_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2];
+#else
+/// Buffers for asymmetric plain key
+static uint8_t client_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE];
+static uint8_t server_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE];
+#endif
+
+/// Buffers for asymmetric public key
+static uint8_t client_pubkey_buf[ECC_PUBKEY_SIZE];
+static uint8_t server_pubkey_buf[ECC_PUBKEY_SIZE];
+
+/// Buffers for ECDH shared secret
+static uint8_t client_shared_secret_buf[SHARED_SECRET_SIZE];
+
+size_t get_shared_secret_length(sl_se_key_type_t key_type)
+{
+  switch (key_type) {
+    case SL_SE_KEY_TYPE_ECC_P192:
+      return (ECC_P192_PRIVKEY_SIZE * 2);
+
+    case SL_SE_KEY_TYPE_ECC_P256:
+      return (ECC_P256_PRIVKEY_SIZE * 2);
+
+#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
+    case SL_SE_KEY_TYPE_ECC_P384:
+      return (ECC_P384_PRIVKEY_SIZE * 2);
+
+    case SL_SE_KEY_TYPE_ECC_P521:
+      return (ECC_P521_PRIVKEY_SIZE * 2);
+
+    case SL_SE_KEY_TYPE_ECC_WEIERSTRASS_PRIME_CUSTOM:
+      return (DOMAIN_SIZE * 2);
+
+    case SL_SE_KEY_TYPE_ECC_X25519:
+      return (ECC_X25519_PRIVKEY_SIZE);
+
+    case SL_SE_KEY_TYPE_ECC_X448:
+      return (ECC_X448_PRIVKEY_SIZE);
+#endif
+
+    default:
+      return 0;
+  }
+}
+int32_t compute_ecdh_shared()
+{
+  sl_status_t ret;
+
+   memset(client_shared_secret_buf, 0, SHARED_SECRET_SIZE);
+
+   uint32_t req_size;
+
+    // Set up a key descriptor pointing to an existing wrapped private key
+    sl_se_key_descriptor_t priv_key = {
+      .type = SL_SE_KEY_TYPE_ECC_P256,
+      .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
+               | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
+               | SL_SE_KEY_FLAG_NON_EXPORTABLE,
+      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
+      // Set pointer to a RAM buffer to support key generation
+      .storage.location.buffer.pointer = client_key_buf,
+      .storage.location.buffer.size = sizeof(client_key_buf)
+    };
+
+    // Set up a key descriptor pointing to an existing public key
+    sl_se_key_descriptor_t pub_key = {
+      .type = SL_SE_KEY_TYPE_ECC_P256,
+      .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY,
+      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
+      .storage.location.buffer.pointer = server_pubkey_buf,
+      .storage.location.buffer.size = sizeof(server_pubkey_buf)
+    };
+
+    // Set up a key descriptor pointing to a shared secret buffer
+    sl_se_key_descriptor_t shared_secret = {
+      .type = SL_SE_KEY_TYPE_SYMMETRIC,
+      .size = get_shared_secret_length(SL_SE_KEY_TYPE_ECC_P256),
+      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
+      .storage.location.buffer.pointer = client_shared_secret_buf,
+      .storage.location.buffer.size = sizeof(client_shared_secret_buf),
+    };
+
+      if (sl_se_validate_key(&shared_secret) != SL_STATUS_OK
+        || sl_se_get_storage_size(&shared_secret, &req_size) != SL_STATUS_OK
+        || shared_secret.storage.location.buffer.size < req_size) {
+      return SL_STATUS_FAIL;
+    }
+
+    return sl_se_ecdh_compute_shared_secret(&cmd_ctx, &priv_key, &pub_key, &shared_secret);
+}
+
+int32_t generate_ecdh_keypair()
+{
+  uint32_t req_size;
+
+  // Set up a key descriptor pointing to a wrapped key buffer
+  sl_se_key_descriptor_t new_key = {
+    .type = SL_SE_KEY_TYPE_ECC_P256,
+    .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
+             | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
+             | SL_SE_KEY_FLAG_NON_EXPORTABLE,
+    .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
+    // Set pointer to a RAM buffer to support key generation
+    .storage.location.buffer.pointer = client_key_buf,
+    .storage.location.buffer.size = sizeof(client_key_buf)
+  };
+
+
+  // The size of the wrapped key buffer must have space for the overhead of the
+  // key wrapping
+  if (sl_se_validate_key(&new_key) != SL_STATUS_OK
+      || sl_se_get_storage_size(&new_key, &req_size) != SL_STATUS_OK
+      || new_key.storage.location.buffer.size < req_size) {
+    return SL_STATUS_FAIL;
+  }
+
+  sl_se_generate_key(&cmd_ctx, &new_key);
+
+  /* Export associated public key */
+
+   // Set up a key descriptor pointing to an existing wrapped key
+   sl_se_key_descriptor_t wrap_key = {
+     .type = SL_SE_KEY_TYPE_ECC_P256,
+     .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
+              | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
+              | SL_SE_KEY_FLAG_NON_EXPORTABLE,
+     .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
+     .storage.location.buffer.pointer = client_key_buf,
+     .storage.location.buffer.size = sizeof(client_key_buf)
+   };
+
+   // Set up a key descriptor pointing to an external key buffer
+   sl_se_key_descriptor_t plain_pubkey = {
+     .type = SL_SE_KEY_TYPE_ECC_P256,
+     .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY,
+     .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
+     .storage.location.buffer.pointer = client_pubkey_buf,
+     .storage.location.buffer.size = sizeof(client_pubkey_buf)
+   };
+
+   if (sl_se_validate_key(&plain_pubkey) != SL_STATUS_OK
+       || sl_se_get_storage_size(&plain_pubkey, &req_size) != SL_STATUS_OK
+       || plain_pubkey.storage.location.buffer.size < req_size) {
+     return SL_STATUS_FAIL;
+   }
+
+   return sl_se_export_public_key(&cmd_ctx, &wrap_key, &plain_pubkey);
+
+}
+
+int32_t keygen1()
+{
+   mbedtls_ecdh_context ctx;
+   mbedtls_ecdh_init(&ctx);
+   if ( mbedtls_ecp_group_load(&ctx.grp, MBEDTLS_ECP_DP_SECP256R1) != 0 )
+     return -1;
+   if (mbedtls_ecdh_gen_public(&ctx.grp, &ctx.d, &ctx.Q, NULL, NULL))
+     return -1;
+}
+
 #define MAX_EZSP_TRANSFER_SIZE 96
 
 uint8_t command = 0;
@@ -167,6 +420,14 @@ void eventHandler(void)
         var = SL_SE_CERT_KEY_SIZE;
         p = (uint8_t *)get_pub_device_key_buf_ptr();
         break;
+      case CMD_GENERATE_ECDH_KEYPAIR_GENERATE:
+        var = sizeof(client_pubkey_buf);
+        p = (uint8_t *)client_pubkey_buf;
+        break;
+      case CMD_GENERATE_ECDH_COMPUTE_SHARED:
+        var = sizeof(client_shared_secret_buf);
+        p = (uint8_t *)client_shared_secret_buf;
+        break;
       default:
         break;
     }
@@ -191,6 +452,7 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
   if (state != INITIALISED)
     return EMBER_ERR_FATAL;
 
+  *replyPayloadLength = 0;
   command = messagePayload[0];
   sent = 0;
   sl_status_t status;
@@ -200,29 +462,27 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
     case CMD_RD_CERT_SIZE:
       status = sl_se_read_cert_size(&cmd_ctx, &cert_size_buf);
       if (status != SL_STATUS_OK)
-        return EMBER_ERR_FATAL;
+        goto error;
       emberEventControlSetDelayMS(eventData, 10);
       break;
     case CMD_RD_DEVICE_CERT:
       status = sl_se_read_cert(&cmd_ctx, SL_SE_CERT_DEVICE_HOST, cert_buf, get_cert_size(SL_SE_CERT_DEVICE_HOST));
       if (status != SL_STATUS_OK)
-        return EMBER_ERR_FATAL;
+        goto error;
       emberEventControlSetDelayMS(eventData, 10);
       break;
     case CMD_RD_BATCH_CERT:
       status = sl_se_read_cert(&cmd_ctx, SL_SE_CERT_BATCH, cert_buf, get_cert_size(SL_SE_CERT_BATCH));
       if (status != SL_STATUS_OK)
-        return EMBER_ERR_FATAL;
+        goto error;
       emberEventControlSetDelayMS(eventData, 10);
       break;
     case CMD_GET_PUBLIC_DEVICE_KEY:
       mbedtls_x509_crt_init(&cert_chain);
       mbedtls_x509_crt_parse_der(&cert_chain,(const uint8_t *)get_cert_buf_ptr(), get_cert_size(SL_SE_CERT_DEVICE_HOST));
       if (get_pub_device_key() != SL_STATUS_OK)
-        return EMBER_ERR_FATAL;
+        goto error;
       emberEventControlSetDelayMS(eventData, 10);
-      *replyPayloadLength = SL_SE_CERT_KEY_SIZE;
-      memcpy(replyPayload, (uint8_t *)get_pub_device_key_buf_ptr(), SL_SE_CERT_KEY_SIZE);
       break;
     case CMD_SIGN_CHALLENGE:
       {
@@ -231,7 +491,16 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
         sl_se_ecc_sign(&cmd_ctx, &private_device_key, SL_SE_HASH_SHA256, false, messagePayload, messageLength, replyPayload, SL_SE_CERT_SIGN_SIZE);
         break;
       }
-
+    case CMD_GENERATE_ECDH_KEYPAIR_GENERATE:
+       if (generate_ecdh_keypair() != 0)
+         goto error;
+       emberEventControlSetDelayMS(eventData, 10);
+        break;
+    case CMD_GENERATE_ECDH_COMPUTE_SHARED:
+       if (compute_ecdh_shared() != 0)
+         goto error;
+       emberEventControlSetDelayMS(eventData, 10);
+        break;
     default:
       return EMBER_BAD_ARGUMENT;
       break;
@@ -239,7 +508,11 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
 
     return EMBER_SUCCESS;
 
-}
+error:
+  *replyPayloadLength = 1;
+  replyPayload[0] = 0xaa;
+  return EMBER_ERR_FATAL;
+ }
 
 void emberAfMainTickCallback(void)
 {
