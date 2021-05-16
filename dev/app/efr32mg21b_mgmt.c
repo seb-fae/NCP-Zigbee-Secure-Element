@@ -165,6 +165,7 @@ int32_t read_cert_size(sl_se_cert_size_type_t * bsize)
   if (rsize != sizeof(sl_se_cert_size_type_t))
     return -1;
 
+  print_buffer(message_in.mtext, rsize);
   memcpy(&cert_size_buf, message_in.mtext, rsize);
   return 0;
 }
@@ -188,6 +189,7 @@ uint32_t read_cert_data(uint8_t *buf, uint8_t cert_type)
   /* Read message */
   ssize_t rsize = read_message(&message_in);
 
+  print_buffer(message_in.mtext, rsize);
   memcpy(buf, message_in.mtext, rsize);
   return 0;
 }

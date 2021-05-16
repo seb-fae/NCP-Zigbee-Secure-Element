@@ -17,63 +17,10 @@
 #include EMBER_AF_API_ZIGBEE_PRO
 #include EMBER_AF_API_STACK
 
+#include "ncp-crypto.h"
+
 EmberEventControl eventData;
 
-#include "x509_crt.h"
-#include "ecp.h"
-#include "pk.h"
-#include "sl_se_manager_util.h"
-#include "sl_se_manager_internal_keys.h"
-
-#include <ecdh.h>
-
-/// Certificate buffer size
-#define CERT_SIZE       (512)
-/// Command context
-static sl_se_command_context_t cmd_ctx;
-
-/// Certificate size buffer
-static sl_se_cert_size_type_t cert_size_buf;
-
-/// Challenge buffer
-static uint8_t challenge_buf[SL_SE_CHALLENGE_SIZE];
-
-/// Certificate buffer
-static uint8_t cert_buf[CERT_SIZE];
-
-/// Public device key buffer
-static uint8_t pub_device_key_buf[SL_SE_CERT_KEY_SIZE];
-
-/// Signature buffer
-static uint8_t signature_buf[SL_SE_CERT_SIGN_SIZE];
-
-/// Number of bytes actually used in the token.
-static size_t token_len;
-
-/// Certificate chain context
-static mbedtls_x509_crt cert_chain;
-
-typedef enum {
-  CMD_RD_CERT_SIZE,
-  CMD_RD_DEVICE_CERT,
-  CMD_RD_BATCH_CERT,
-  CMD_VERIFY_CERT_CHAIN,
-  CMD_SIGN_CHALLENGE,
-  CMD_GET_PUBLIC_DEVICE_KEY,
-  CMD_VERIFY_SIGNATURE_LOCAL,
-  CMD_VERIFY_SIGNATURE_REMOTE,
-  CMD_GENERATE_ECDH_KEYPAIR_GENERATE,
-  CMD_GENERATE_ECDH_COMPUTE_SHARED
- } cmd_t;
-
-
-enum se_state
-{
-  RESET_STATE,
-  INITIALISED
-};
-
-enum se_state state = RESET_STATE;
 
 /***************************************************************************//**
  * Get certificate size.
@@ -138,109 +85,6 @@ void emberAfMainInitCallback(void) {
 }
 
 
-// -----------------------------------------------------------------------------
-//                              Macros and Typedefs
-// -----------------------------------------------------------------------------
-/// Overhead of wrapped key buffer
-#define WRAPPED_KEY_OVERHEAD    (12 + 16)
-
-/// Private key size of ECC Weierstrass Prime keys
-#define ECC_P192_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P192 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
-#define ECC_P256_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P256 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
-#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
-#define ECC_P384_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_P384 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
-#define ECC_P521_PRIVKEY_SIZE   ((SL_SE_KEY_TYPE_ECC_P521 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK) + 2)
-
-/// Private key size of ECC Montgomery keys
-#define ECC_X25519_PRIVKEY_SIZE (SL_SE_KEY_TYPE_ECC_X25519 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
-#define ECC_X448_PRIVKEY_SIZE   (SL_SE_KEY_TYPE_ECC_X448 & SL_SE_KEY_TYPE_ATTRIBUTES_MASK)
-
-/// Use the biggest ECC curve as private key size
-#define ECC_PRIVKEY_SIZE        (ECC_P521_PRIVKEY_SIZE)
-
-/// Domain size of asymmetric custom key
-#define DOMAIN_SIZE             (32)
-#else
-/// Use the biggest ECC curve as private key size
-#define ECC_PRIVKEY_SIZE        (ECC_P256_PRIVKEY_SIZE)
-#endif
-
-/// Public key size = private key size x 2
-#define ECC_PUBKEY_SIZE         (ECC_PRIVKEY_SIZE * 2)
-
-/// Shared secret size = private key size x 2
-#define SHARED_SECRET_SIZE      (ECC_PRIVKEY_SIZE * 2)
-
-/// Internal SE key slots used for asymmetric keys
-#define CLIENT_KEY_SLOT         (SL_SE_KEY_SLOT_VOLATILE_0)
-#define SERVER_KEY_SLOT         (SL_SE_KEY_SLOT_VOLATILE_1)
-
-static sl_se_command_context_t cmd_ctx;
-
-#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
-/// Constants for custom secp256k1 curve
-static const uint8_t p[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                             0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xfc, 0x2f };
-static const uint8_t N[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
-                             0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
-                             0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41 };
-static const uint8_t Gx[] = { 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac,
-                              0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b, 0x07,
-                              0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9,
-                              0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98 };
-static const uint8_t Gy[] = { 0x48, 0x3a, 0xda, 0x77, 0x26, 0xa3, 0xc4, 0x65,
-                              0x5d, 0xa4, 0xfb, 0xfc, 0x0e, 0x11, 0x08, 0xa8,
-                              0xfd, 0x17, 0xb4, 0x48, 0xa6, 0x85, 0x54, 0x19,
-                              0x9c, 0x47, 0xd0, 0x8f, 0xfb, 0x10, 0xd4, 0xb8 };
-static const uint8_t a[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-static const uint8_t b[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07 };
-
-/// Structure for custom ECC curve
-static const sl_se_custom_weierstrass_prime_domain_t domain = {
-  .size = DOMAIN_SIZE,
-  .p = p,
-  .N = N,
-  .Gx = Gx,
-  .Gy = Gy,
-  .a = a,
-  .b = b,
-  .a_is_zero = true,
-  .a_is_minus_three = false
-};
-
-/// Buffers for asymmetric plain or wrapped key
-static uint8_t client_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE + WRAPPED_KEY_OVERHEAD];
-
-
-/// Buffers for asymmetric custom plain or wrapped key
-static uint8_t client_custom_key_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2 + DOMAIN_SIZE + WRAPPED_KEY_OVERHEAD];
-static uint8_t server_custom_key_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2 + DOMAIN_SIZE + WRAPPED_KEY_OVERHEAD];
-
-/// Buffers for asymmetric custom public key
-static uint8_t client_custom_pubkey_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2];
-static uint8_t server_custom_pubkey_buf[DOMAIN_SIZE * 6 + DOMAIN_SIZE * 2];
-#else
-/// Buffers for asymmetric plain key
-static uint8_t client_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE];
-static uint8_t server_key_buf[ECC_PRIVKEY_SIZE + ECC_PUBKEY_SIZE];
-#endif
-
-/// Buffers for asymmetric public key
-static uint8_t client_pubkey_buf[ECC_PUBKEY_SIZE];
-static uint8_t server_pubkey_buf[ECC_PUBKEY_SIZE];
-
-/// Buffers for ECDH shared secret
-static uint8_t client_shared_secret_buf[SHARED_SECRET_SIZE];
-
 size_t get_shared_secret_length(sl_se_key_type_t key_type)
 {
   switch (key_type) {
@@ -273,8 +117,6 @@ size_t get_shared_secret_length(sl_se_key_type_t key_type)
 }
 int32_t compute_ecdh_shared()
 {
-  sl_status_t ret;
-
    memset(client_shared_secret_buf, 0, SHARED_SECRET_SIZE);
 
    uint32_t req_size;
@@ -409,9 +251,9 @@ void eventHandler(void)
         p = (uint8_t *)&cert_size_buf;
         break;
       case CMD_RD_DEVICE_CERT:
-        var = get_cert_size(SL_SE_CERT_DEVICE_HOST);
-        p = cert_buf;
-        break;
+         var = get_cert_size(SL_SE_CERT_DEVICE_HOST);
+         p = cert_buf;
+         break;
       case CMD_RD_BATCH_CERT:
         var = get_cert_size(SL_SE_CERT_BATCH);
         p = cert_buf;
@@ -497,6 +339,7 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
        emberEventControlSetDelayMS(eventData, 10);
         break;
     case CMD_GENERATE_ECDH_COMPUTE_SHARED:
+       memcpy(server_pubkey_buf, messagePayload + 1, 64);
        if (compute_ecdh_shared() != 0)
          goto error;
        emberEventControlSetDelayMS(eventData, 10);
@@ -506,11 +349,11 @@ EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
       break;
   }
 
-    return EMBER_SUCCESS;
+  return EMBER_SUCCESS;
 
 error:
   *replyPayloadLength = 1;
-  replyPayload[0] = 0xaa;
+  replyPayload[0] = 0xAA;
   return EMBER_ERR_FATAL;
  }
 
