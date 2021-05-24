@@ -18,7 +18,7 @@ Create a fresh NCP project and follow this procedure:
 
 * Replace Z3GatewayHost_callback.c by the file from this repository
 * Compile and run 
-* 
+ 
 ## Compile Mbedtls
 
 We want to delegate ECC cryptographic operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations.
