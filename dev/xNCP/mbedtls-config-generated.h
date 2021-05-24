@@ -36,9 +36,7 @@
 #define MBEDTLS_ECP_MAX_BITS           256
 
 
-
 #define MBEDTLS_MPI_MAX_SIZE    32
-
 
 #define MBEDTLS_AES_C
 #define MBEDTLS_ASN1_PARSE_C
@@ -68,6 +66,9 @@
 #define MBEDTLS_PK_PARSE_C
 #define MBEDTLS_PSA_CRYPTO_DRIVERS
 #define MBEDTLS_PSA_CRYPTO_BUILTIN_KEYS
+#define MBEDTLS_ECDH_C
+#define MBEDTLS_ECDH_LEGACY_CONTEXT
+
 
 #include "config-device-acceleration.h"
 

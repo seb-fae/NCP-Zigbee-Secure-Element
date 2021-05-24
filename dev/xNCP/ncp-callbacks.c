@@ -6,21 +6,40 @@
 // code to this file. If you regenerate this file over a previous version, the
 // previous version will be overwritten and any code you have added will be
 // lost.
+#include <app_se.h>
 #include PLATFORM_HEADER
 #include CONFIGURATION_HEADER
 #include EMBER_AF_API_EMBER_TYPES
 #include "app/util/ezsp/ezsp-enum.h"
 #include "hal/hal.h"
 #include "app/util/ezsp/ezsp-frame-utilities.h"
-
 #include EMBER_AF_API_NVM3
 #include EMBER_AF_API_ZIGBEE_PRO
 #include EMBER_AF_API_STACK
 
-#include "ncp-crypto.h"
+#include <ecp.h>
+#include <pk.h>
+#include "mbedtls/x509_crt.h"
+
+#define SL_SE_MESSAGE_TO_SIGN_SIZE 32
+
+/// Challenge buffer
+static uint8_t challenge_buf[SL_SE_MESSAGE_TO_SIGN_SIZE];
+/// Signature buffer
+static uint8_t signature_buf[SL_SE_CERT_SIGN_SIZE];
+/// Certificate size buffer
+static sl_se_cert_size_type_t cert_size_buf;
+/// Certificate buffer
+static uint8_t cert_buf[CERT_SIZE];
+
+enum se_state state = RESET_STATE;
 
 EmberEventControl eventData;
 
+#define MAX_EZSP_TRANSFER_SIZE 96
+
+uint8_t command = 0;
+uint32_t sent = 0;
 
 /***************************************************************************//**
  * Get certificate size.
@@ -37,212 +56,28 @@ uint32_t get_cert_size(uint8_t cert_type)
     return 0;
   }
 }
-uint8_t * get_cert_buf_ptr(void)
-{
-  return(cert_buf);
-}
 
-uint8_t * get_pub_device_key_buf_ptr(void)
-{
-  return(pub_device_key_buf);
-}
-
-int32_t get_pub_device_key(void)
-{
-  int32_t ret;
-  mbedtls_ecp_keypair ecp_key;
-
-  // Copy public key in device certificate to an ECP key-pair structure
-  mbedtls_ecp_keypair_init(&ecp_key);
-  ret = mbedtls_ecp_copy(&ecp_key.Q, &mbedtls_pk_ec(cert_chain.pk)->Q);
-
-  if (ret != 0) {
-    return ret;
-  }
-
-  // Save public key X to a buffer
-  ret = mbedtls_mpi_write_binary(&ecp_key.Q.X,
-                                 (uint8_t *)get_pub_device_key_buf_ptr(),
-                                 SL_SE_CERT_KEY_SIZE / 2);
-  if (ret != 0) {
-    return ret;
-  }
-
-  // Save public key Y to a buffer
-  return mbedtls_mpi_write_binary(&ecp_key.Q.Y,
-                                  (uint8_t *)get_pub_device_key_buf_ptr() + 32,
-                                  SL_SE_CERT_KEY_SIZE / 2);
-}
 /** @brief Performs any additional initialization required at system startup.
  *
  * This function is called when the application starts and can be used to
  * perform any additional initialization required at system startup.
  */
-void emberAfMainInitCallback(void) {
- // your code here
+void emberAfMainInitCallback(void)
+{
+  RETARGET_SwoInit();
+  printf("MainInitCb\n");
+
   if (sl_se_init() == SL_STATUS_OK)
     state = INITIALISED;
 }
 
 
-size_t get_shared_secret_length(sl_se_key_type_t key_type)
-{
-  switch (key_type) {
-    case SL_SE_KEY_TYPE_ECC_P192:
-      return (ECC_P192_PRIVKEY_SIZE * 2);
-
-    case SL_SE_KEY_TYPE_ECC_P256:
-      return (ECC_P256_PRIVKEY_SIZE * 2);
-
-#if (_SILICON_LABS_SECURITY_FEATURE == _SILICON_LABS_SECURITY_FEATURE_VAULT)
-    case SL_SE_KEY_TYPE_ECC_P384:
-      return (ECC_P384_PRIVKEY_SIZE * 2);
-
-    case SL_SE_KEY_TYPE_ECC_P521:
-      return (ECC_P521_PRIVKEY_SIZE * 2);
-
-    case SL_SE_KEY_TYPE_ECC_WEIERSTRASS_PRIME_CUSTOM:
-      return (DOMAIN_SIZE * 2);
-
-    case SL_SE_KEY_TYPE_ECC_X25519:
-      return (ECC_X25519_PRIVKEY_SIZE);
-
-    case SL_SE_KEY_TYPE_ECC_X448:
-      return (ECC_X448_PRIVKEY_SIZE);
-#endif
-
-    default:
-      return 0;
-  }
-}
-int32_t compute_ecdh_shared()
-{
-   memset(client_shared_secret_buf, 0, SHARED_SECRET_SIZE);
-
-   uint32_t req_size;
-
-    // Set up a key descriptor pointing to an existing wrapped private key
-    sl_se_key_descriptor_t priv_key = {
-      .type = SL_SE_KEY_TYPE_ECC_P256,
-      .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
-               | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
-               | SL_SE_KEY_FLAG_NON_EXPORTABLE,
-      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
-      // Set pointer to a RAM buffer to support key generation
-      .storage.location.buffer.pointer = client_key_buf,
-      .storage.location.buffer.size = sizeof(client_key_buf)
-    };
-
-    // Set up a key descriptor pointing to an existing public key
-    sl_se_key_descriptor_t pub_key = {
-      .type = SL_SE_KEY_TYPE_ECC_P256,
-      .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY,
-      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
-      .storage.location.buffer.pointer = server_pubkey_buf,
-      .storage.location.buffer.size = sizeof(server_pubkey_buf)
-    };
-
-    // Set up a key descriptor pointing to a shared secret buffer
-    sl_se_key_descriptor_t shared_secret = {
-      .type = SL_SE_KEY_TYPE_SYMMETRIC,
-      .size = get_shared_secret_length(SL_SE_KEY_TYPE_ECC_P256),
-      .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
-      .storage.location.buffer.pointer = client_shared_secret_buf,
-      .storage.location.buffer.size = sizeof(client_shared_secret_buf),
-    };
-
-      if (sl_se_validate_key(&shared_secret) != SL_STATUS_OK
-        || sl_se_get_storage_size(&shared_secret, &req_size) != SL_STATUS_OK
-        || shared_secret.storage.location.buffer.size < req_size) {
-      return SL_STATUS_FAIL;
-    }
-
-    return sl_se_ecdh_compute_shared_secret(&cmd_ctx, &priv_key, &pub_key, &shared_secret);
-}
-
-int32_t generate_ecdh_keypair()
-{
-  uint32_t req_size;
-
-  // Set up a key descriptor pointing to a wrapped key buffer
-  sl_se_key_descriptor_t new_key = {
-    .type = SL_SE_KEY_TYPE_ECC_P256,
-    .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
-             | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
-             | SL_SE_KEY_FLAG_NON_EXPORTABLE,
-    .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
-    // Set pointer to a RAM buffer to support key generation
-    .storage.location.buffer.pointer = client_key_buf,
-    .storage.location.buffer.size = sizeof(client_key_buf)
-  };
-
-
-  // The size of the wrapped key buffer must have space for the overhead of the
-  // key wrapping
-  if (sl_se_validate_key(&new_key) != SL_STATUS_OK
-      || sl_se_get_storage_size(&new_key, &req_size) != SL_STATUS_OK
-      || new_key.storage.location.buffer.size < req_size) {
-    return SL_STATUS_FAIL;
-  }
-
-  sl_se_generate_key(&cmd_ctx, &new_key);
-
-  /* Export associated public key */
-
-   // Set up a key descriptor pointing to an existing wrapped key
-   sl_se_key_descriptor_t wrap_key = {
-     .type = SL_SE_KEY_TYPE_ECC_P256,
-     .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PRIVATE_KEY
-              | SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY
-              | SL_SE_KEY_FLAG_NON_EXPORTABLE,
-     .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_WRAPPED,
-     .storage.location.buffer.pointer = client_key_buf,
-     .storage.location.buffer.size = sizeof(client_key_buf)
-   };
-
-   // Set up a key descriptor pointing to an external key buffer
-   sl_se_key_descriptor_t plain_pubkey = {
-     .type = SL_SE_KEY_TYPE_ECC_P256,
-     .flags = SL_SE_KEY_FLAG_ASYMMETRIC_BUFFER_HAS_PUBLIC_KEY,
-     .storage.method = SL_SE_KEY_STORAGE_EXTERNAL_PLAINTEXT,
-     .storage.location.buffer.pointer = client_pubkey_buf,
-     .storage.location.buffer.size = sizeof(client_pubkey_buf)
-   };
-
-   if (sl_se_validate_key(&plain_pubkey) != SL_STATUS_OK
-       || sl_se_get_storage_size(&plain_pubkey, &req_size) != SL_STATUS_OK
-       || plain_pubkey.storage.location.buffer.size < req_size) {
-     return SL_STATUS_FAIL;
-   }
-
-   return sl_se_export_public_key(&cmd_ctx, &wrap_key, &plain_pubkey);
-
-}
-
-int32_t keygen1()
-{
-   mbedtls_ecdh_context ctx;
-   mbedtls_ecdh_init(&ctx);
-   if ( mbedtls_ecp_group_load(&ctx.grp, MBEDTLS_ECP_DP_SECP256R1) != 0 )
-     return -1;
-   if (mbedtls_ecdh_gen_public(&ctx.grp, &ctx.d, &ctx.Q, NULL, NULL))
-     return -1;
-}
-
-#define MAX_EZSP_TRANSFER_SIZE 96
-
-uint8_t command = 0;
-
-
-sl_status_t status;
-uint32_t sent = 0;
-
 void eventHandler(void)
 {
   emberEventControlSetInactive(eventData);
-  uint8_t *p;
+  uint8_t *p = NULL;
   uint8_t rsplen = 0;
-  uint32_t var;
+  uint32_t var = 0;
 
   switch(command)
     {
@@ -258,17 +93,17 @@ void eventHandler(void)
         var = get_cert_size(SL_SE_CERT_BATCH);
         p = cert_buf;
         break;
-      case CMD_GET_PUBLIC_DEVICE_KEY:
-        var = SL_SE_CERT_KEY_SIZE;
-        p = (uint8_t *)get_pub_device_key_buf_ptr();
-        break;
       case CMD_GENERATE_ECDH_KEYPAIR_GENERATE:
-        var = sizeof(client_pubkey_buf);
-        p = (uint8_t *)client_pubkey_buf;
+        var = ECC_PUBKEY_SIZE;
+        p = get_client_buf_ptr();
         break;
       case CMD_GENERATE_ECDH_COMPUTE_SHARED:
-        var = sizeof(client_shared_secret_buf);
-        p = (uint8_t *)client_shared_secret_buf;
+        var = SHARED_SECRET_SIZE;
+        p = get_client_shared_secret_buf_ptr();
+        break;
+      case CMD_SIGN_CHALLENGE:
+        var = SL_SE_CERT_SIGN_SIZE;
+        p = signature_buf;
         break;
       default:
         break;
@@ -286,78 +121,76 @@ void eventHandler(void)
   emberEventControlSetDelayMS(eventData, 10);
 }
 
+
 EmberStatus emberAfPluginXncpIncomingCustomFrameCallback(uint8_t messageLength,
                                                          uint8_t *messagePayload,
                                                          uint8_t *replyPayloadLength,
                                                          uint8_t *replyPayload) {
+  sl_status_t status = EMBER_SUCCESS;
 
   if (state != INITIALISED)
-    return EMBER_ERR_FATAL;
+  {
+    status = EMBER_ERR_FATAL;
+    goto error;
+  }
+
+  printf("CMD: %d\n", command);
 
   *replyPayloadLength = 0;
   command = messagePayload[0];
   sent = 0;
-  sl_status_t status;
+
+  sl_se_command_context_t *ctx = get_ctx_ptr();
+  sl_se_key_descriptor_t private_device_key = SL_SE_APPLICATION_ATTESTATION_KEY;
+
 
   switch(command)
   {
     case CMD_RD_CERT_SIZE:
-      status = sl_se_read_cert_size(&cmd_ctx, &cert_size_buf);
-      if (status != SL_STATUS_OK)
-        goto error;
-      emberEventControlSetDelayMS(eventData, 10);
+      status = sl_se_read_cert_size(ctx, &cert_size_buf);
       break;
     case CMD_RD_DEVICE_CERT:
-      status = sl_se_read_cert(&cmd_ctx, SL_SE_CERT_DEVICE_HOST, cert_buf, get_cert_size(SL_SE_CERT_DEVICE_HOST));
-      if (status != SL_STATUS_OK)
-        goto error;
-      emberEventControlSetDelayMS(eventData, 10);
+      status = sl_se_read_cert(ctx, SL_SE_CERT_DEVICE_HOST, cert_buf, get_cert_size(SL_SE_CERT_DEVICE_HOST));
       break;
     case CMD_RD_BATCH_CERT:
-      status = sl_se_read_cert(&cmd_ctx, SL_SE_CERT_BATCH, cert_buf, get_cert_size(SL_SE_CERT_BATCH));
-      if (status != SL_STATUS_OK)
-        goto error;
-      emberEventControlSetDelayMS(eventData, 10);
-      break;
-    case CMD_GET_PUBLIC_DEVICE_KEY:
-      mbedtls_x509_crt_init(&cert_chain);
-      mbedtls_x509_crt_parse_der(&cert_chain,(const uint8_t *)get_cert_buf_ptr(), get_cert_size(SL_SE_CERT_DEVICE_HOST));
-      if (get_pub_device_key() != SL_STATUS_OK)
-        goto error;
-      emberEventControlSetDelayMS(eventData, 10);
+      status = sl_se_read_cert(ctx, SL_SE_CERT_BATCH, cert_buf, get_cert_size(SL_SE_CERT_BATCH));
       break;
     case CMD_SIGN_CHALLENGE:
-      {
-        // Set up a key descriptor for private device key
-        sl_se_key_descriptor_t private_device_key = SL_SE_APPLICATION_ATTESTATION_KEY;
-        sl_se_ecc_sign(&cmd_ctx, &private_device_key, SL_SE_HASH_SHA256, false, messagePayload, messageLength, replyPayload, SL_SE_CERT_SIGN_SIZE);
-        break;
-      }
+      memcpy(challenge_buf, messagePayload + 1, SL_SE_MESSAGE_TO_SIGN_SIZE);
+      status = sl_se_ecc_sign(ctx, &private_device_key, SL_SE_HASH_NONE, true, challenge_buf, SL_SE_MESSAGE_TO_SIGN_SIZE, signature_buf, SL_SE_CERT_SIGN_SIZE);
+      break;
     case CMD_GENERATE_ECDH_KEYPAIR_GENERATE:
-       if (generate_ecdh_keypair() != 0)
-         goto error;
-       emberEventControlSetDelayMS(eventData, 10);
-        break;
+      status = create_wrap_asymmetric_key(SL_SE_KEY_TYPE_ECC_P256, true);
+      if (status)
+        goto error;
+      status = export_asymmetric_pubkey_from_wrap(SL_SE_KEY_TYPE_ECC_P256, true);
+      break;
     case CMD_GENERATE_ECDH_COMPUTE_SHARED:
-       memcpy(server_pubkey_buf, messagePayload + 1, 64);
-       if (compute_ecdh_shared() != 0)
-         goto error;
-       emberEventControlSetDelayMS(eventData, 10);
-        break;
+       memset(get_client_shared_secret_buf_ptr(), 0, SHARED_SECRET_SIZE);
+       memcpy(get_server_buf_ptr(), messagePayload + 1, 64);
+       status = compute_wrap_shared_secret(SL_SE_KEY_TYPE_ECC_P256, true);
+       break;
     default:
       return EMBER_BAD_ARGUMENT;
       break;
   }
 
-  return EMBER_SUCCESS;
+  if (status)
+    goto error;
+
+  emberEventControlSetDelayMS(eventData, 10);
+  return status;
 
 error:
+  printf("Error\n");
   *replyPayloadLength = 1;
-  replyPayload[0] = 0xAA;
+  replyPayload[0] = status;
   return EMBER_ERR_FATAL;
  }
 
-void emberAfMainTickCallback(void)
-{
-}
+
+
+
+
+
 
