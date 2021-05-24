@@ -1,6 +1,6 @@
 # NCP-Zigbee-Secure-Element
 
-This project shows how to establish a secure TLS connection to a server by taking advantage of the secure element embedded in a EFR32MG21B running a Zigbee NCP (Network Co-Processor)
+This project shows how to establish a secure TLS connection to a server by taking advantage of the secure element embedded in an EFR32MG21B running a Zigbee NCP (Network Co-Processor)
 
 ## Create and Compile a NCP
 
@@ -20,6 +20,11 @@ Create a fresh NCP project and follow this procedure:
 * Replace Z3GatewayHost_callback.c by the file from this repository
 * Compile and run 
  
+## Launch test server
+```
+openssl s_server -accept 127.0.0.1:8080 -CAfile cert/silabs-root-ca.pem -cert cert/server-cert.pem -key cert/server-key.pem -Verify 1 -state -debug -msg -tlsextdebug -security_debug -security_debug_verbose -tls1_2
+```
+
 ## Compile Mbedtls
 
 We want to delegate ECC cryptographic operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations.
