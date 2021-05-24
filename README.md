@@ -23,6 +23,19 @@ This is normal. This function are implemented in efr32mg21b_mgmt.c
 cd $PROJECT_LOC
 gcc dev/app/efr32mg21b_mgmt.c dev/app/connect_hw.c dev/app/message_queue.c -o connect -I$PROJECT_LOC/mbedtls/include/ -I$PROJECT_LOC/dev/app -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\> -L $PROJECT_LOC/mbedtls/library/ -lmbedtls -lmbedx509 -lmbedcrypto
 ```
+
+## Build and Compile a NCP
+
+Create a fresh NCP project and follow this procedure:
+* Add "Xncp plugin"
+* Enable the "emberAfPluginXncpIncomingCustomFrameCallback" callback
+* Enable the "emberAfMainInitCallback" callback
+* Set heap size to 1024 with "--defsym=EMBER_MALLOC_HEAP_SIZE=1024"
+* Generate
+* Copy files from Xncp folder of this repository to your project 
+* Compile
+
+
 ## Run Application
 
 ```
