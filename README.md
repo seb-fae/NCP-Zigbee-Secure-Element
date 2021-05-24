@@ -36,7 +36,7 @@ You should otbain linking error for
 
 This is normal. This function are implemented in efr32mg21b_mgmt.c 
 
-## Compile application and link with mbetls libraries 
+## Compile application and link with Mbedtls libraries 
 
 ```
 cd $PROJECT_LOC
