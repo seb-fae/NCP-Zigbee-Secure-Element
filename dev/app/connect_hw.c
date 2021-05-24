@@ -8,6 +8,7 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "stdint.h"
+#include <string.h>
 
 /* From mbedtls */
 #include "mbedtls/platform.h"
@@ -23,6 +24,8 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/ecdh.h"
 
+#include "efr32mg21b_mgmt.h"
+
 uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey);
 
 static void my_debug(
@@ -31,7 +34,6 @@ static void my_debug(
     (void) level;
     printf("%s:%04d: %s", file, line, str);
 }
-
 
 int efr32mg21_connect(
     const char * endpoint, const char * port, const char * cn,
@@ -165,6 +167,12 @@ int efr32mg21_connect(
 
     printf("TLS Session Established and a Socket is ready for an Application\n");
 
+
+    while( 1 )
+    {
+      /* Put your code here */
+    }
+ 
     mbedtls_ssl_close_notify(&ssl);
 
 exit:

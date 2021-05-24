@@ -21,7 +21,6 @@
 #include <string.h>
 
 typedef enum {
-  SE_MANAGER_IDLE,
   RD_CERT_SIZE,
   RD_DEVICE_CERT,
   PARSE_DEVICE_CERT,
@@ -30,26 +29,18 @@ typedef enum {
   PARSE_FACTORY_CERT,
   PARSE_ROOT_CERT,
   VERIFY_CERT_CHAIN,
-  CREATE_CHALLENGE,
-  SIGN_CHALLENGE,
-  GET_PUBLIC_DEVICE_KEY,
-  VERIFY_SIGNATURE_LOCAL,
-  VERIFY_SIGNATURE_REMOTE,
-  SE_MANAGER_EXIT
+  SE_MANAGER_EXIT,
 } state_t;
 
 typedef enum {
   CMD_RD_CERT_SIZE,
   CMD_RD_DEVICE_CERT,
   CMD_RD_BATCH_CERT,
-  CMD_VERIFY_CERT_CHAIN,
   CMD_SIGN_CHALLENGE,
-  CMD_GET_PUBLIC_DEVICE_KEY,
-  CMD_VERIFY_SIGNATURE_LOCAL,
-  CMD_VERIFY_SIGNATURE_REMOTE,
   CMD_GENERATE_ECDH_KEYPAIR_GENERATE,
   CMD_GENERATE_ECDH_COMPUTE_SHARED
  } cmd_t;
+
 /// Batch ID certificate
 #define SL_SE_CERT_BATCH                          0x01
 /// SE ID certificate
@@ -60,19 +51,12 @@ typedef enum {
 /// Certificate buffer size
 #define CERT_SIZE       (512)
 
-/// Certificate buffer
-static uint8_t cert_buf[CERT_SIZE];
-
 /// Certificate size data structure
 typedef struct {
   uint32_t batch_id_size;    ///< size in bytes of the Batch certificate
   uint32_t se_id_size;       ///< size in bytes of the SE ID certificate
   uint32_t host_id_size;     ///< size in bytes of the Host ID certificate
 } sl_se_cert_size_type_t;
-
-/// Certificate size buffer
-static sl_se_cert_size_type_t cert_size_buf;
-
 
 /// Factory certificate
 static const uint8_t factory[] =
@@ -108,4 +92,5 @@ static const uint8_t root[] =
   "c7VKkqNr4UAU5zPbxg==\n"
   "-----END CERTIFICATE-----\n";
 
-
+void efr32mg21b_init();
+uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey);

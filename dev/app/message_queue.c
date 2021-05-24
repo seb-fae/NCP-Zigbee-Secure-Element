@@ -5,12 +5,13 @@ int messageQIdout = -1;
 
 void print_buffer(uint8_t *buffer, uint32_t size)
 {
-  printf("receive %d bytes: \n");	
+#ifdef DEBUG_PRINT_ENABLED	
   for (uint32_t i = 0; i< size; i++)
     {
         printf("0x%x ", buffer[i]);
     }
         printf("\n");
+#endif
 }
 
 void init_message_queue(void)
@@ -71,7 +72,7 @@ ssize_t read_message(MessageQBuffer_t * messageBuffer)
     }
 
   if (bytesReceived < 0)
-    printf("Error when reading message queue %d\n", bytesReceived);
+    printf("Error when reading message queue\n");
 
 
   return bytesReceived;

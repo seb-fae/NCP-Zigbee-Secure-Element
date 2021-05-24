@@ -182,7 +182,7 @@ void PollMqHandler(void)
       EmberStatus status = ezspCustomFrame(bytesReceived, message_in.mtext, (uint8_t*)&rsplen, &rsp);
 
       if (status || (rsplen && rsp == 0xAA))
-        printf("Error from NCP %d", status);
+        printf("Error from NCP 0x%x", status);
     }
   else
     emberEventControlSetDelayMS(PollMqData, 10);

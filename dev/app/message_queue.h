@@ -26,4 +26,9 @@ typedef struct {
   uint8_t mtext[IPC_QUEUE_PAYLOAD_SIZE];
 } MessageQBuffer_t;
 
+void init_message_queue(void);
+void print_buffer(uint8_t *buffer, uint32_t size);
+ssize_t read_message(MessageQBuffer_t * messageBuffer);
+uint8_t send_message(MessageQBuffer_t *message, uint16_t len);
+
 #endif

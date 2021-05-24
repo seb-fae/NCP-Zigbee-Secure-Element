@@ -4,11 +4,24 @@
 #include MBEDTLS_CONFIG_FILE
 #endif
 
-#define SL_SE_APPLICATION_ATTESTATION_KEY 0
-#define SL_SE_APPLICATION_ECDH_KEY 1
+#include "mbedtls/platform_util.h"
+#include "message_queue.h"
+#include "efr32mg21b_mgmt.h"
+
+#define SL_SE_KEY_SLOT_APPLICATION_ATTESTATION_KEY 0xFE
+#define SL_SE_KEY_SLOT_WRAPPED_ECDH_KEY 0
 
 #define PUB_KEY_SIZE 64
 #define SHARED_KEY_SIZE 32
+#define SIGNATURE_SIZE 64
+
+MessageQBuffer_t message_in;
+MessageQBuffer_t message_out;
+
+/* Certificate size buffer */
+static sl_se_cert_size_type_t cert_size_buf;
+/* Certificate buffer */
+static uint8_t cert_buf[CERT_SIZE];
 
 #if defined(MBEDTLS_ECDSA_C)
 
@@ -18,7 +31,10 @@
 
 int mbedtls_ecdsa_can_do( mbedtls_ecp_group_id gid )
 {
-    printf("\ncando\n");
+#ifdef DEBUG_PRINT_ENABLED	
+    printf("mbedtls_ecdsa_can_do: %d\n", gid);
+#endif
+
     switch( gid )
     {
 #ifdef MBEDTLS_ECP_DP_CURVE25519_ENABLED
@@ -38,7 +54,30 @@ int mbedtls_ecdsa_sign(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *s,
                        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 {
     int ret = 0;
-    printf("\nsign %d\n", *(uint16_t*)d->p);
+#ifdef DEBUG_PRINT_ENABLED	
+    printf("mbedtls_ecdsa_sign: %d\n", *(uint16_t*)d->p);
+#endif
+
+    /* Send message */
+    message_out.mtype = 1;
+    message_out.mtext[0] = CMD_SIGN_CHALLENGE;
+
+    memcpy(message_out.mtext + 1, buf, blen);
+
+    print_buffer(message_out.mtext + 1, blen);
+    send_message(&message_out, blen + 1);
+
+    /* Read message */
+    ssize_t rsize = read_message(&message_in);
+    print_buffer(message_in.mtext, rsize);
+
+    ret = mbedtls_mpi_read_binary(r, message_in.mtext, SIGNATURE_SIZE/ 2);
+    
+    if (ret)
+      return ret;	    
+
+    ret = mbedtls_mpi_read_binary(s, message_in.mtext + (SIGNATURE_SIZE/ 2), SIGNATURE_SIZE / 2);
+ 
     return ret;
 }
 
@@ -49,21 +88,15 @@ int mbedtls_ecdsa_sign(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *s,
 #if defined(MBEDTLS_ECDH_C)
 
 #include "mbedtls/ecdh.h"
-#include "mbedtls/platform_util.h"
-
-#include "message_queue.h"
-#include "efr32mg21b_mgmt.h"
-
-MessageQBuffer_t message_in;
-MessageQBuffer_t message_out;
-
 #ifdef MBEDTLS_ECDH_GEN_PUBLIC_ALT
 /** Generate ECDH keypair */
 int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_point *Q,
                             int (*f_rng)(void *, unsigned char *, size_t),
                             void *p_rng)
 {
-  printf("\ngenerate ecdh keypair %d\n", grp->id);
+#ifdef DEBUG_PRINT_ENABLED	
+//  printf("mbedtls_ecdh_gen_public: %d\n", *(uint16_t*)d->p);
+#endif
 
   int ret = 0;
   uint8_t temp = 1;
@@ -78,7 +111,7 @@ int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_
       return MBEDTLS_ERR_ECP_FEATURE_UNAVAILABLE;
   }
 
-  ret = mbedtls_mpi_lset(d, SL_SE_APPLICATION_ECDH_KEY);
+  ret = mbedtls_mpi_lset(d, SL_SE_KEY_SLOT_WRAPPED_ECDH_KEY);
 
   if (ret)
     return ret;	    
@@ -116,9 +149,10 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
                                 int (*f_rng)(void *, unsigned char *, size_t),
                                 void *p_rng)
 {
+#ifdef DEBUG_PRINT_ENABLED	
+  printf("mbedtls_ecdh_compute_shared: %d %d\n", grp->id, *(uint16_t*)d->p);
+#endif
   int ret = 0;
-  printf("\ncompute shared %d %d\n", grp->id, *(uint16_t*)d->p);
-
 
   if (!grp || !z || !Q || !d)
     return MBEDTLS_ERR_ECP_BAD_INPUT_DATA;
@@ -140,7 +174,8 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
   if (ret)
     return ret;
 
-  send_message(&message_out, 1);
+  print_buffer(message_out.mtext + 1, PUB_KEY_SIZE);
+  send_message(&message_out, PUB_KEY_SIZE + 1);
   /* Read message */
   ssize_t rsize = read_message(&message_in);
   print_buffer(message_in.mtext, rsize);
@@ -153,7 +188,7 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
 
 #endif /* MBEDTLS_ECDH_C */
 
-int32_t read_cert_size(sl_se_cert_size_type_t * bsize)
+static int32_t read_cert_size(sl_se_cert_size_type_t * bsize)
 {
   /* Send message */  
   message_out.mtype = 1;
@@ -170,7 +205,7 @@ int32_t read_cert_size(sl_se_cert_size_type_t * bsize)
   return 0;
 }
 
-uint32_t read_cert_data(uint8_t *buf, uint8_t cert_type)
+static uint32_t read_cert_data(uint8_t *buf, uint8_t cert_type)
 {
   /* Send message */  
   message_out.mtype = 1;
@@ -195,7 +230,7 @@ uint32_t read_cert_data(uint8_t *buf, uint8_t cert_type)
 }
 
 
-uint32_t efr32mg21b_init()
+void efr32mg21b_init()
 {
   init_message_queue();
 }
@@ -203,7 +238,7 @@ uint32_t efr32mg21b_init()
 /***************************************************************************//**
  * Get the public key in device certificate.
  ******************************************************************************/
-int32_t get_pub_device_key(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey)
+static int32_t get_pub_device_key(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey)
 {
   int32_t ret = 0;
   mbedtls_ecp_keypair *ecp;
@@ -231,7 +266,7 @@ int32_t get_pub_device_key(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey)
      ret = mbedtls_ecp_copy(&ecp->Q, &mbedtls_pk_ec(cert->pk)->Q);
 
    if (!ret)
-     ret = mbedtls_mpi_lset(&ecp->d, SL_SE_APPLICATION_ATTESTATION_KEY);
+     ret = mbedtls_mpi_lset(&ecp->d, SL_SE_KEY_SLOT_APPLICATION_ATTESTATION_KEY);
 
    return ret;
 }
@@ -239,7 +274,7 @@ int32_t get_pub_device_key(mbedtls_x509_crt * cert, mbedtls_pk_context * pkey)
 /***************************************************************************//**
  * Get certificate size.
  ******************************************************************************/
-uint32_t get_cert_size(uint8_t cert_type)
+static uint32_t get_cert_size(uint8_t cert_type)
 {
   if (cert_type == SL_SE_CERT_BATCH) {
     return cert_size_buf.batch_id_size;
@@ -346,7 +381,6 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
           printf("error\n");
         break;
 
-/*  --------------------------------------------------------------- */
 
       case PARSE_FACTORY_CERT:
         state = SE_MANAGER_EXIT;
@@ -360,6 +394,8 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
 	else 
           printf("error\n");
         break;
+
+/* Optional verification */	
 
       case PARSE_ROOT_CERT:
         state = SE_MANAGER_EXIT;
@@ -380,7 +416,12 @@ uint32_t efr32mg21b_build_certificate_chain(mbedtls_x509_crt * cert, mbedtls_pk_
         printf("ok\n");
       else 
         printf("error\n");
-      return;
+      return 0;
+
+    default:
+      printf("error\n");
+      break;
+
     }     
   }
 }
