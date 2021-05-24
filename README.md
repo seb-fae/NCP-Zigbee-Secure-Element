@@ -1,5 +1,6 @@
 # NCP-Zigbee-Secure-Element
 
+This project shows how to establish a secure TLS connection to a server by taking advantage of the secure element embedded in a EFR32MG21B running a Zigbee NCP (Network Co-Processor) 
 
 ## Create and Compile a NCP
 
