@@ -15,7 +15,7 @@ Create a fresh NCP project and follow this procedure:
 * Set heap size to 1024 with "**--defsym=EMBER_MALLOC_HEAP_SIZE=1024**"
 * Add a custom event and let the default name
 * Generate
-* Copy files from Xncp folder of this repository to your project 
+* Copy files from **Xncp** folder of this repository to your project 
 * Compile and Flash to EFR32MG21B
 
 ## Create and compile a Z3GatewayHost project
