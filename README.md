@@ -2,6 +2,10 @@
 
 This project shows how to establish a secure TLS connection to a server by taking advantage of the internal secure element of EFR32MG21B running a Zigbee NCP (Network Co-Processor)
 
+**To secure communication between Host and Zigbee NCP, Secure EZSP should be enabled by following this document:**
+https://www.silabs.com/documents/public/application-notes/an1125-creating-and-using-a-secure-ezsp-host-to-ncp-interface.pdf
+
+
 ## Create and Compile a NCP
 
 Create a fresh NCP project and follow this procedure:
@@ -30,7 +34,7 @@ openssl s_server -accept 127.0.0.1:8080 -CAfile cert/silabs-root-ca.pem -cert ce
 
 ## Compile Mbedtls
 
-We want to delegate ECC cryptographic operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations.
+We want to delegate some mbedtls operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations.
 
 ```
 export PROJECT_LOC=/path/to/NCP-Zigbee-Secure-Element
