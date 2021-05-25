@@ -8,7 +8,7 @@ https://www.silabs.com/documents/public/application-notes/an1125-creating-and-us
 
 ## Create and Compile a NCP
 
-Create a fresh NCP project and follow this procedure:
+Create a new NCP project and follow this procedure:
 * Add "**Xncp plugin**"
 * Enable the "**emberAfPluginXncpIncomingCustomFrameCallback**" callback
 * Enable the "**emberAfMainInitCallback**" callback
@@ -19,6 +19,8 @@ Create a fresh NCP project and follow this procedure:
 * Compile and Flash to EFR32MG21B
 
 ## Create and compile a Z3GatewayHost project
+
+Create a new Z3GatewayHost project and follow this procedure:
 
 * Enable **emberAfMainInitCallback** callback
 * Enable **ezspCustomFrameHandler** callback
