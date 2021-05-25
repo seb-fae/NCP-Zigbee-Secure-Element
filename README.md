@@ -17,8 +17,10 @@ Create a fresh NCP project and follow this procedure:
 
 ## Create and compile a Z3GatewayHost project
 
+* Enable emberAfMainInitCallback callback
+* Enable ezspCustomFrameHandler callback
 * Replace Z3GatewayHost_callback.c by the file from this repository
-* Compile and run 
+* Generate, Compile and run 
  
 ## Launch test server
 ```
