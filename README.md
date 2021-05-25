@@ -28,14 +28,17 @@ Create a new Z3GatewayHost project and follow this procedure:
 * Replace **Z3GatewayHost_callback.c** by the file from this repository
 * Generate, Compile and run 
  
-## Launch test server
+## Start test server
+
+We will use **s_server** command of openssl to run a test server.
+
 ```
 openssl s_server -accept 127.0.0.1:8080 -CAfile cert/silabs-root-ca.pem -cert cert/server-cert.pem -key cert/server-key.pem -Verify 1 -state -debug -msg -tlsextdebug -security_debug -security_debug_verbose -tls1_2
 ```
 
 ## Compile Mbedtls
 
-We want to delegate some mbedtls operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations.
+We want to delegate some mbedtls operation to EFR32MG21B. For that we are going to use alternate definitions for ECC operations. This is done in **mbedtls_config.h**
 
 ```
 export PROJECT_LOC=/path/to/NCP-Zigbee-Secure-Element
@@ -62,6 +65,8 @@ gcc dev/app/efr32mg21b_mgmt.c dev/app/connect_hw.c dev/app/message_queue.c -o co
 ```
 ./connect 127.0.0.1 8080 SERVER cert/server-ca-cert.pem
 ```
+* **SERVER** is the Common Name
+* **cert/server-ca-cert.pem** is the CA certificate of server
 
 # Disclaimer
 All the provided code should be considered as an example which implies that the code provided in the repos has not been formally tested and is provided as-is. It is not suitable for production environments. In addition, this code will not be maintained and there may be no bug maintenance planned for these resources. 
