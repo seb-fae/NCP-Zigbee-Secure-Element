@@ -9,22 +9,21 @@ https://www.silabs.com/documents/public/application-notes/an1125-creating-and-us
 ## Create and Compile a NCP
 
 Create a fresh NCP project and follow this procedure:
-* Add "Xncp plugin"
-* Enable the "emberAfPluginXncpIncomingCustomFrameCallback" callback
-* Enable the "emberAfMainInitCallback" callback
-* Set heap size to 1024 with "--defsym=EMBER_MALLOC_HEAP_SIZE=1024"
+* Add "**Xncp plugin**"
+* Enable the "**emberAfPluginXncpIncomingCustomFrameCallback**" callback
+* Enable the "**emberAfMainInitCallback**" callback
+* Set heap size to 1024 with "**--defsym=EMBER_MALLOC_HEAP_SIZE=1024**"
 * Add a custom event and let the default name
 * Generate
 * Copy files from Xncp folder of this repository to your project 
-* Compile
-* Flash to EFR32MG21B
+* Compile and Flash to EFR32MG21B
 
 ## Create and compile a Z3GatewayHost project
 
-* Enable emberAfMainInitCallback callback
-* Enable ezspCustomFrameHandler callback
-* Add a custom event PollMqData/PollMqHandler
-* Replace Z3GatewayHost_callback.c by the file from this repository
+* Enable **emberAfMainInitCallback** callback
+* Enable **ezspCustomFrameHandler** callback
+* Add a custom event **PollMqData/PollMqHandler**
+* Replace **Z3GatewayHost_callback.c** by the file from this repository
 * Generate, Compile and run 
  
 ## Launch test server
@@ -39,7 +38,7 @@ We want to delegate some mbedtls operation to EFR32MG21B. For that we are going 
 ```
 export PROJECT_LOC=/path/to/NCP-Zigbee-Secure-Element
 cd mbedtls
-CFLAGS="-I$PROJECT_LOC/dev -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make no_test
+CFLAGS="-I$PROJECT_LOC/dev/app -DMBEDTLS_CONFIG_FILE=\<mbedtls_config.h\>" make no_test
 ```
 You should otbain linking error for
 * mbedtls_ecdh_gen_public 
