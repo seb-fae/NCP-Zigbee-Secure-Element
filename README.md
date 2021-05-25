@@ -46,7 +46,7 @@ You should otbain linking error for
 * mbedtls_ecdh_compute_shared 
 * mbedtls_ecdsa_can_do
 
-This is normal. This function are implemented in efr32mg21b_mgmt.c 
+In spite of these errors, mbedtls libraries have been generated. These missing functions are implemented in following application.
 
 ## Compile application and link with Mbedtls libraries 
 
