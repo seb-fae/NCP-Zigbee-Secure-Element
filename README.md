@@ -19,6 +19,7 @@ Create a fresh NCP project and follow this procedure:
 
 * Enable emberAfMainInitCallback callback
 * Enable ezspCustomFrameHandler callback
+* Add a custom event PollMqData/PollMqHandler
 * Replace Z3GatewayHost_callback.c by the file from this repository
 * Generate, Compile and run 
  
