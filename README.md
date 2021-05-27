@@ -1,6 +1,6 @@
 # NCP-Zigbee-Secure-Element
 
-This project shows how to establish a secure TLS connection to a remote server by taking advantage of the internal secure element of the EFR32MG21B. In this project EFR32 is also running a Zigbee NCP (Network Co-Processor).
+This project shows how to establish a secure TLS (using cipher suite TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256) connection to a remote server by taking advantage of the internal secure element of the EFR32MG21B. In this project EFR32 is also running a Zigbee NCP (Network Co-Processor).
 
 In order to secure communication between Host and Zigbee NCP, Secure EZSP should be enabled by following this document:
 https://www.silabs.com/documents/public/application-notes/an1125-creating-and-using-a-secure-ezsp-host-to-ncp-interface.pdf
