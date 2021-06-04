@@ -5,7 +5,7 @@ This project shows how to establish a secure TLS (using cipher suite TLS-ECDHE-E
 **In order to secure communication between Host and Zigbee NCP, Secure EZSP should be enabled by following this document:
 https://www.silabs.com/documents/public/application-notes/an1125-creating-and-using-a-secure-ezsp-host-to-ncp-interface.pdf**
 
-This project is only experimental and might contains security breaches.
+**This project is only experimental and might contains security breaches.**
 
 ## Create and Compile a NCP
 
