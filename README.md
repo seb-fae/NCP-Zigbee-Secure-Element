@@ -68,6 +68,8 @@ gcc dev/app/efr32mg21b_mgmt.c dev/app/connect_hw.c dev/app/message_queue.c -o co
 * **SERVER** is the Common Name
 * **cert/server-ca-cert.pem** is the CA certificate of server
 
+## TLS sequence
+
 ![Alt text](tls.jpg?raw=true "Optional Title")
 
 # Disclaimer
